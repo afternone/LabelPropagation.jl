@@ -1,5 +1,3 @@
-using Graphs
-
 modularity{V}(graph::AbstractGraph{V}, membership::Vector{Int})
 = modularity(graph, membership, Float64[])
 
