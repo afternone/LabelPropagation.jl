@@ -107,7 +107,6 @@ function _initial{V}(graph::AbstractGraph{V},
     membership, not_fixed_nodes
 end
 
-# test git
 function _initial{V}(graph::AbstractGraph{V},
                      initial::Dict{V,Int} = Dict{V,Int}(),
                      fixed::Vector{Bool} = Array(Bool, 0))

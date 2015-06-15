@@ -1,5 +1,4 @@
-modularity{V}(graph::AbstractGraph{V}, membership::Vector{Int})
-= modularity(graph, membership, Float64[])
+modularity{V}(graph::AbstractGraph{V}, membership::Vector{Int}) = modularity(graph, membership, Float64[])
 
 function modularity{V,T<:Real}(graph::AbstractGraph{V}, membership::Vector{Int}, weights::Vector{T})
 
