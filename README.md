@@ -31,7 +31,7 @@ Raghavan, U.N. and Albert, R. and Kumara, S.: [Near linear time algorithm to det
 using Graphs
 using LabelPorpagation
 
-es = readdlm("karate.txt", Int) # read edges from file
+es = readdlm("data/karate.txt", Int) # read edges from file
 g = simple_graph(maximum(es), is_directed=false)
 for i=1:size(es,1)
 	add_edge!(g, es[i,1], es[i,2])
