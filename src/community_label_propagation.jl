@@ -1,19 +1,29 @@
 function label_propagation{V,T<:Real}(graph::AbstractGraph{V};
                                       weights::Vector{T} = Array(Float64, 0),
+                                      proximity::Vector{T} = Array(Float64, 0),
                                       initial = Array(Int, 0),
                                       fixed = Array(Bool, 0))
     !is_directed(graph) || error("graph must be undirected.")
-
-    if !isempty(weights)
+    if !isempty(proximity)
         @graph_requires graph edge_map incidence_list
-        if length(weights) != num_edges(graph)
-            error("Invalid weight vector length")
-        elseif minimum(weights) < 0
-            error("Weights must be non-negative")
+        if length(proximity) != num_edges(graph)
+            error("Invalid proximity vector length")
+        elseif minimum(proximity) < 0 || maximum(proximity) > 1
+            error("Proximity must between 0 and 1")
         end
-        weighted_label_propagation!(graph, weights, _initial(graph, initial, fixed)...)
+        mix_label_propagation!(graph, proximity, _initial(graph, initial, fixed)...)
     else
-        unweighted_label_propagation!(graph, _initial(graph, initial, fixed)...)
+        if !isempty(weights)
+            @graph_requires graph edge_map incidence_list
+            if length(weights) != num_edges(graph)
+                error("Invalid weight vector length")
+            elseif minimum(weights) < 0
+                error("Weights must be non-negative")
+            end
+            weighted_label_propagation!(graph, weights, _initial(graph, initial, fixed)...)
+        else
+            unweighted_label_propagation!(graph, _initial(graph, initial, fixed)...)
+        end
     end
 end
 
@@ -341,6 +351,87 @@ function unweighted_label_propagation!{V}(graph::AbstractGraph{V},
             # Clear the nonzero elements in label_counters
             for i in nonzero_labels
                 label_counters[i] = 0
+            end
+        end
+    end
+    permute_labels!(membership)
+end
+
+function mix_label_propagation!{V,T<:Real}(graph::AbstractGraph{V},
+                                                proximity::Vector{T},
+                                                membership::Vector{Int},
+                                                not_fixed_nodes::Vector{V})
+    @graph_requires graph edge_map incidence_list vertex_map
+
+    label_counters = zeros(T, num_vertices(graph))
+    dominant_labels = Int[]
+    similarity = Array(T, 0)
+    nonzero_labels = Int[]
+
+    running = true
+    while running
+        running = false
+
+        # Shuffle the node ordering vector
+        X = shuffle(not_fixed_nodes)
+
+        # In the prescribed order, loop over the vertices and reassign labels
+        for v in X
+            v_idx = vertex_index(v, graph)
+
+            # Clear dominant_labels and nonzero_labels
+            dominant_labels = Int[]
+            nonzero_labels = Int[]
+
+            # recount
+            max_count = zero(T)
+
+            for w in out_edges(v, graph)
+                w_idx = edge_index(w, graph)
+                k = membership[vertex_index(target(w, graph), graph)]
+
+                # skip if it has no label yet
+                k != 0 || continue
+
+                was_zero = label_counters[k] == zero(T)
+                label_counters[k] += 1
+                if was_zero && label_counters[k] != zero(T)
+                    # counter just became nonzero
+                    push!(nonzero_labels, k)
+                end
+                if max_count < label_counters[k]
+                    max_count = label_counters[k]
+                    resize!(dominant_labels, 1)
+                    resize!(similarity, 1)
+                    dominant_labels[1] = k
+                    similarity[1] = proximity[w_idx]
+                elseif max_count == label_counters[k]
+                    push!(dominant_labels, k)
+                    push!(similarity, proximity[w_idx])
+                end
+            end
+
+            if !isempty(dominant_labels)
+
+                max_similarity = maximum(similarity)
+                candidate_labels = dominant_labels[similarity.>=max_similarity]
+
+                # Select randomly from the dominant labels
+
+                k = candidate_labels[rand(1:length(candidate_labels))]
+
+                # Check if the current label of the node is also dominant
+                if label_counters[membership[v_idx]] != max_count
+                    # Nope, we need at least one more iteration
+                    running = true
+                end
+
+                # Update label of the current node
+                membership[v_idx] = k
+            end
+            # Clear the nonzero elements in label_counters
+            for i in nonzero_labels
+                label_counters[i] = zero(T)
             end
         end
     end

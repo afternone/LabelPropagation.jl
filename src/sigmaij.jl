@@ -32,7 +32,35 @@ function sigmaij{T}(g::AbstractGraph{T}, κ::Int, ρ::Int)
                 end
             end
         end
-        proximity[edge_index(e, g)] = sqrt(sum1/(LNv-LCN) + sum2/(LNw-LCN) + sum3/(LCN))
+        if LCN > 0
+            if LNv > LCN
+                if LNw > LCN
+                    proximity[edge_index(e, g)] = sqrt(sum1/(LNv-LCN) + sum2/(LNw-LCN) + sum3/(LCN))
+                else
+                    proximity[edge_index(e, g)] = sqrt(sum1/(LNv-LCN) + sum3/(LCN))
+                end
+            else
+                if LNw > LCN
+                    proximity[edge_index(e, g)] = sqrt(sum2/(LNw-LCN) + sum3/(LCN))
+                else
+                    proximity[edge_index(e, g)] = sum3/(LCN)
+                end
+            end
+        else
+            if LNv > LCN
+                if LNw > LCN
+                    proximity[edge_index(e, g)] = sqrt(sum1/(LNv-LCN) + sum2/(LNw-LCN))
+                else
+                    proximity[edge_index(e, g)] = sqrt(sum1/(LNv-LCN))
+                end
+            else
+                if LNw > LCN
+                    proximity[edge_index(e, g)] = sqrt(sum2/(LNw-LCN))
+                else
+                    proximity[edge_index(e, g)] = 0.0
+                end
+            end
+        end
     end
     proximity
 end
