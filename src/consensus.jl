@@ -11,4 +11,3 @@ function consensus{V}(g::AbstractGraph{V}, m::Vector{Int})
     end
     w
 end
-
