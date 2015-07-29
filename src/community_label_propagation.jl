@@ -8,8 +8,8 @@ function label_propagation{V,T<:Real}(graph::AbstractGraph{V};
         @graph_requires graph edge_map incidence_list
         if length(proximity) != num_edges(graph)
             error("Invalid proximity vector length")
-        elseif minimum(proximity) < 0 || maximum(proximity) > 1
-            error("Proximity must between 0 and 1")
+        #elseif minimum(proximity) < 0 || maximum(proximity) > 1
+        #    error("Proximity must between 0 and 1")
         end
         mix_label_propagation!(graph, proximity, _initial(graph, initial, fixed)...)
     else
