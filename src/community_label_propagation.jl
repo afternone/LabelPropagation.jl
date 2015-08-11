@@ -2,7 +2,8 @@ function label_propagation{V,T<:Real}(graph::AbstractGraph{V};
                                       weights::Vector{T} = Array(Float64, 0),
                                       proximity::Vector{T} = Array(Float64, 0),
                                       initial = Array(Int, 0),
-                                      fixed = Array(Bool, 0))
+                                      fixed = Array(Bool, 0),
+                                      λ::Real = 1.0)
     !is_directed(graph) || error("graph must be undirected.")
     if !isempty(proximity)
         @graph_requires graph edge_map incidence_list
@@ -11,7 +12,7 @@ function label_propagation{V,T<:Real}(graph::AbstractGraph{V};
         #elseif minimum(proximity) < 0 || maximum(proximity) > 1
         #    error("Proximity must between 0 and 1")
         end
-        mix_label_propagation!(graph, proximity, _initial(graph, initial, fixed)...)
+        mix_label_propagation!(graph, proximity, _initial(graph, initial, fixed)..., λ)
     else
         if !isempty(weights)
             @graph_requires graph edge_map incidence_list
@@ -226,7 +227,9 @@ function weighted_label_propagation!{V,T<:Real}(graph::AbstractGraph{V},
     nonzero_labels = Int[]
 
     running = true
+    STEP = 0
     while running
+        STEP += 1
         running = false
 
         # Shuffle the node ordering vector
@@ -284,7 +287,184 @@ function weighted_label_propagation!{V,T<:Real}(graph::AbstractGraph{V},
             end
         end
     end
-    permute_labels!(membership)
+    permute_labels!(membership), STEP
+end
+
+function nei_label_propagation{V,T<:Real}(graph::AbstractGraph{V},
+                                      common_neighbors::Vector{T};
+                                          no_common_neighbors::Vector{T} = Array(Float64, 0),
+                                      proximity::Vector{T} = Array(Float64, 0),
+                                      initial = Array(Int, 0),
+                                      fixed = Array(Bool, 0),
+                                      λ::Real = 1.0)
+    !is_directed(graph) || error("graph must be undirected.")
+    if length(common_neighbors) != num_edges(graph)
+        error("Invalid weight vector length")
+    end
+    if isempty(no_common_neighbors)
+        @graph_requires graph edge_map incidence_list
+        nei_label_propagation!(graph, common_neighbors, _initial(graph, initial, fixed)..., λ)
+    else
+        if length(no_common_neighbors) != num_edges(graph)
+            error("Invalid no_common_neighbors vector length")
+        end
+        nei_label_propagation!(graph, common_neighbors, no_common_neighbors, _initial(graph, initial, fixed)..., λ)
+    end
+
+end
+
+function nei_label_propagation!{V,T<:Real}(graph::AbstractGraph{V},
+                                           common_neighbors::Vector{T},
+                                           membership::Vector{Int},
+                                           not_fixed_nodes::Vector{V},
+                                           λ::T)
+    @graph_requires graph edge_map incidence_list vertex_map
+
+    label_counters = zeros(T, num_vertices(graph))
+    dominant_labels = Int[]
+    nonzero_labels = Int[]
+
+    running = true
+    STEP = 0
+    while running
+        STEP += 1
+        running = false
+
+        # Shuffle the node ordering vector
+        X = shuffle(not_fixed_nodes)
+
+        # In the prescribed order, loop over the vertices and reassign labels
+        for v in X
+            v_idx = vertex_index(v, graph)
+
+            # Clear dominant_labels and nonzero_labels
+            dominant_labels = Int[]
+            nonzero_labels = Int[]
+
+            # recount
+            max_count = zero(T)
+
+            for w in out_edges(v, graph)
+                k = membership[vertex_index(target(w, graph), graph)]
+
+                # skip if it has no label yet
+                k != 0 || continue
+
+                was_zero = label_counters[k] == zero(T)
+                label_counters[k] += 1 + λ*common_neighbors[edge_index(w, graph)]
+                if was_zero && label_counters[k] != zero(T)
+                    # counter just became nonzero
+                    push!(nonzero_labels, k)
+                end
+                if max_count < label_counters[k]
+                    max_count = label_counters[k]
+                    resize!(dominant_labels, 1)
+                    dominant_labels[1] = k
+                elseif max_count == label_counters[k]
+                    push!(dominant_labels, k)
+                end
+            end
+
+            if !isempty(dominant_labels)
+
+                # Select randomly from the dominant labels
+                k = dominant_labels[rand(1:length(dominant_labels))]
+
+                # Check if the current label of the node is also dominant
+                if label_counters[membership[v_idx]] != max_count
+                    # Nope, we need at least one more iteration
+                    running = true
+                end
+
+                # Update label of the current node
+                membership[v_idx] = k
+            end
+            # Clear the nonzero elements in label_counters
+            for i in nonzero_labels
+                label_counters[i] = zero(T)
+            end
+        end
+    end
+    permute_labels!(membership), STEP
+end
+
+function nei_label_propagation!{V,T<:Real}(graph::AbstractGraph{V},
+                                           common_neighbors::Vector{T},
+                                           no_common_neighbors::Vector{T},
+                                           membership::Vector{Int},
+                                           not_fixed_nodes::Vector{V},
+                                           λ::T)
+    @graph_requires graph edge_map incidence_list vertex_map
+
+    label_counters = zeros(T, num_vertices(graph))
+    sub_label_counters = zeros(T, num_vertices(graph))
+    dominant_labels = Int[]
+    nonzero_labels = Int[]
+
+    running = true
+    STEP = 0
+    while running
+        STEP += 1
+        running = false
+
+        # Shuffle the node ordering vector
+        X = shuffle(not_fixed_nodes)
+
+        # In the prescribed order, loop over the vertices and reassign labels
+        for v in X
+            v_idx = vertex_index(v, graph)
+
+            # Clear dominant_labels and nonzero_labels
+            dominant_labels = Int[]
+            nonzero_labels = Int[]
+
+            # recount
+            max_count = zero(T)
+
+            for w in out_edges(v, graph)
+                k = membership[vertex_index(target(w, graph), graph)]
+
+                # skip if it has no label yet
+                k != 0 || continue
+
+                was_zero = label_counters[k] == zero(T)
+                label_counters[k] += 1 + λ*common_neighbors[edge_index(w, graph)]
+                sub_label_counters[k] += no_common_neighbors[edge_index(w, graph)]
+                if was_zero && label_counters[k] != zero(T)
+                    # counter just became nonzero
+                    push!(nonzero_labels, k)
+                end
+                if max_count < label_counters[k]
+                    max_count = label_counters[k]
+                    resize!(dominant_labels, 1)
+                    dominant_labels[1] = k
+                elseif max_count == label_counters[k]
+                    push!(dominant_labels, k)
+                end
+            end
+
+            if !isempty(dominant_labels)
+
+                # Select randomly from the dominant labels
+                #k = dominant_labels[rand(1:length(dominant_labels))]
+                k = dominant_labels[findmin(sub_label_counters[dominant_labels])[2]]
+
+                # Check if the current label of the node is also dominant
+                if label_counters[membership[v_idx]] != max_count
+                    # Nope, we need at least one more iteration
+                    running = true
+                end
+
+                # Update label of the current node
+                membership[v_idx] = k
+            end
+            # Clear the nonzero elements in label_counters
+            for i in nonzero_labels
+                label_counters[i] = zero(T)
+            end
+        end
+    end
+    permute_labels!(membership), STEP
 end
 
 function unweighted_label_propagation!{V}(graph::AbstractGraph{V},
@@ -297,7 +477,9 @@ function unweighted_label_propagation!{V}(graph::AbstractGraph{V},
     nonzero_labels = Int[]
 
     running = true
+    STEP = 0
     while running
+        STEP += 1
         running = false
 
         # Shuffle the node ordering vector
@@ -354,13 +536,14 @@ function unweighted_label_propagation!{V}(graph::AbstractGraph{V},
             end
         end
     end
-    permute_labels!(membership)
+    permute_labels!(membership), STEP
 end
 
 function mix_label_propagation!{V,T<:Real}(graph::AbstractGraph{V},
-                                                proximity::Vector{T},
-                                                membership::Vector{Int},
-                                                not_fixed_nodes::Vector{V})
+                                           proximity::Vector{T},
+                                           membership::Vector{Int},
+                                           not_fixed_nodes::Vector{V},
+                                           λ::Real)
     @graph_requires graph edge_map incidence_list vertex_map
 
     label_counters = zeros(T, num_vertices(graph))
@@ -370,11 +553,18 @@ function mix_label_propagation!{V,T<:Real}(graph::AbstractGraph{V},
     nonzero_labels = Int[]
 
     running = true
+    STEP = 0
     while running
+        STEP += 1
         running = false
 
-        # Shuffle the node ordering vector
-        X = shuffle(not_fixed_nodes)
+        #if STEP <= 0
+        #    degreeX = Int64[out_degree(u, graph) for u in not_fixed_nodes]
+        #    X = not_fixed_nodes[sortperm(degreeX, rev=true)]
+        #else
+            # Shuffle the node ordering vector
+            X = shuffle(not_fixed_nodes)
+        #end
 
         # In the prescribed order, loop over the vertices and reassign labels
         for v in X
@@ -416,7 +606,7 @@ function mix_label_propagation!{V,T<:Real}(graph::AbstractGraph{V},
             if !isempty(dominant_labels)
 
                 max_similarity = maximum(similarity)
-                candidate_labels = dominant_labels[similarity.>=max_similarity]
+                candidate_labels = rand() <= λ ? dominant_labels[similarity.>=max_similarity] : dominant_labels
 
                 # Select randomly from the dominant labels
 
@@ -438,7 +628,7 @@ function mix_label_propagation!{V,T<:Real}(graph::AbstractGraph{V},
             end
         end
     end
-    permute_labels!(membership)
+    permute_labels!(membership), STEP
 end
 
 function permute_labels!(membership::Vector{Int})
